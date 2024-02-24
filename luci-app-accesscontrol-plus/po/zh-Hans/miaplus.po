@@ -13,7 +13,7 @@ msgstr "严格模式"
 msgid "Strict Mode will degrade CPU performance, but it can achieve better results"
 msgstr "严格模式会损耗部分CPU资源，但可以按照时间规则立即拦截数据包，效果更好"
 
-msgid "Advance Setting"
+msgid "Base Setting"
 msgstr "基本设置"
 
 msgid "Advance Setting"
