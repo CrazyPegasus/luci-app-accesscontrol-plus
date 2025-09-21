@@ -2,10 +2,21 @@
 	"luci-app-accesscontrol-plus": {
 		"description": "Grant UCI access for luci-app-accesscontrol-plus",
 		"read": {
-			"uci": [ "miaplus" ]
+			"uci": [ "miaplus" ],
+			"file": {
+				"/tmp/miaplus_dynamic_mac.cache": [ "read" ],
+				"/proc/net/arp": [ "read" ],
+				"/tmp/dhcp.leases": [ "read" ]
+			}
 		},
 		"write": {
-			"uci": [ "miaplus" ]
+			"uci": [ "miaplus" ],
+			"file": {
+				"/tmp/miaplus_dynamic_mac.cache": [ "write" ]
+			}
+		},
+		"exec": {
+			"/usr/bin/update_dynamic_mac.sh": [ "exec" ]
 		}
 	}
 }

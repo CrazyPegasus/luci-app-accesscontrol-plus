@@ -9,15 +9,18 @@
 START=30
 
 CONFIG=miaplus
+DYNAMIC_MAC_CACHE="/tmp/miaplus_dynamic_mac.cache"
 
 uci_export_section_name() {
   local ret=$(uci -n export $CONFIG | grep "config $1" | awk '{print $3}' | awk -F\' '{print $2}')
   echo ${ret:=$2}
 }
+
 uci_get_by_name() {
 	local ret=$(uci get $CONFIG.$1.$2 2>/dev/null)
 	echo ${ret:=$3}
 }
+
 uci_get_by_type() {
 	local index=0
 	if [ -n "$4" ]; then
@@ -26,27 +29,104 @@ uci_get_by_type() {
 	local ret=$(uci get $CONFIG.@$1[$index].$2 2>/dev/null)
 	echo ${ret:=$3}
 }
-uci_get_mac_by_template(){
-  local ret=""
-  for i in $(seq 0 100)
-  do
-    local enable=$(uci_get_by_type macbind enable '' $i)
-    local macaddr=$(uci_get_by_type macbind macaddr '' $i)
-    local template=$(uci_get_by_type macbind template '' $i)
-    if [ -z $enable ] || [ -z $macaddr ] || [ -z $template ]; then
-      break
-    fi
-    if [ "$enable" == "1" ]; then
-      if [ -z "$1" ] || [ "$template" == "$1" ]; then
-        if [ "$ret" == "" ]; then
-          ret=$macaddr
-        else
-          ret="$ret $macaddr"
-        fi
-      fi
-    fi
-  done
-  echo ${ret:=$2}
+
+# 获取主机名对应的MAC地址
+get_mac_by_hostname() {
+	local hostname="$1"
+	local mac=""
+	
+	# 从多个源查找MAC地址
+	# 1. 从ARP表查找
+	mac=$(cat /proc/net/arp | grep -i "$hostname" | awk '{print $4}' | head -1)
+	
+	# 2. 如果ARP表没找到，从DHCP lease文件查找
+	if [ -z "$mac" ] && [ -f "/tmp/dhcp.leases" ]; then
+		mac=$(cat /tmp/dhcp.leases | grep -i "$hostname" | awk '{print $2}' | head -1)
+	fi
+	
+	# 3. 从/proc/net/arp中按IP匹配主机名
+	if [ -z "$mac" ]; then
+		local ip=$(nslookup "$hostname" 2>/dev/null | grep "Address" | tail -1 | awk '{print $3}')
+		if [ -n "$ip" ]; then
+			mac=$(cat /proc/net/arp | grep "$ip" | awk '{print $4}' | head -1)
+		fi
+	fi
+	
+	# 验证MAC地址格式
+	if echo "$mac" | grep -qE '^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$'; then
+		echo "$mac"
+	fi
+}
+
+# 更新动态MAC缓存
+update_dynamic_mac_cache() {
+	echo "# Dynamic MAC Cache - $(date)" > "$DYNAMIC_MAC_CACHE.tmp"
+	
+	for i in $(seq 0 100); do
+		local enable=$(uci_get_by_type macbind enable '' $i)
+		local mactype=$(uci_get_by_type macbind mactype '' $i)
+		local hostname=$(uci_get_by_type macbind hostname '' $i)
+		local template=$(uci_get_by_type macbind template '' $i)
+		
+		if [ -z "$enable" ] || [ -z "$mactype" ] || [ -z "$template" ]; then
+			break
+		fi
+		
+		if [ "$enable" == "1" ] && [ "$mactype" == "dynamic" ] && [ -n "$hostname" ]; then
+			local mac=$(get_mac_by_hostname "$hostname")
+			if [ -n "$mac" ]; then
+				echo "$hostname|$mac|$template" >> "$DYNAMIC_MAC_CACHE.tmp"
+			else
+				logger -t miaplus "Warning: Cannot find MAC for hostname: $hostname"
+			fi
+		fi
+	done
+	
+	mv "$DYNAMIC_MAC_CACHE.tmp" "$DYNAMIC_MAC_CACHE"
+}
+
+uci_get_mac_by_template() {
+	local template_name="$1"
+	local ret=""
+	
+	# 处理静态MAC
+	for i in $(seq 0 100); do
+		local enable=$(uci_get_by_type macbind enable '' $i)
+		local mactype=$(uci_get_by_type macbind mactype 'static' $i)
+		local macaddr=$(uci_get_by_type macbind macaddr '' $i)
+		local template=$(uci_get_by_type macbind template '' $i)
+		
+		if [ -z "$enable" ] || [ -z "$template" ]; then
+			break
+		fi
+		
+		if [ "$enable" == "1" ] && [ "$mactype" == "static" ] && [ -n "$macaddr" ]; then
+			if [ -z "$template_name" ] || [ "$template" == "$template_name" ]; then
+				if [ "$ret" == "" ]; then
+					ret="$macaddr"
+				else
+					ret="$ret $macaddr"
+				fi
+			fi
+		fi
+	done
+	
+	# 处理动态MAC
+	if [ -f "$DYNAMIC_MAC_CACHE" ]; then
+		while IFS='|' read -r hostname mac template; do
+			if [ -n "$hostname" ] && [ -n "$mac" ] && [ -n "$template" ]; then
+				if [ -z "$template_name" ] || [ "$template" == "$template_name" ]; then
+					if [ "$ret" == "" ]; then
+						ret="$mac"
+					else
+						ret="$ret $mac"
+					fi
+				fi
+			fi
+		done < "$DYNAMIC_MAC_CACHE"
+	fi
+	
+	echo "${ret:=$2}"
 }
 
 add_rules(){
@@ -54,8 +134,10 @@ add_rules(){
   if [ -n "$sections" ]; then
     for s in $sections
     do
-      local enable=$(uci_get_by_name $s enable '' $i)
-      local title=$(uci_get_by_name $s title '' $i)
+      #local enable=$(uci_get_by_name $s enable '' $i)
+      #local title=$(uci_get_by_name $s title '' $i)
+	  local enable=$(uci_get_by_name $s enable '')
+      local title=$(uci_get_by_name $s title '')
       if [ -z $enable ]; then
         break
       fi
@@ -65,17 +147,22 @@ add_rules(){
     done
   fi
 }
+
 add_rule(){
-  ipv6enable=$(uci get miaplus.@basic[0].ipv6enable)
+  ipv6enable=$(uci get miaplus.@basic[0].ipv6enable 2>/dev/null)
+  [ -z "$ipv6enable" ] && ipv6enable=0
+  
   local macaddrs=$(uci_get_mac_by_template $1 '')
   if [ -z "$macaddrs" ]; then
-    exit 0
+    return 0
   fi
+  
   for macaddr in $macaddrs
   do
     iptables -t filter -A MIAPLUS  -m mac --mac-source $macaddr -j DROP
     [ $ipv6enable -eq 1 ] && ip6tables -t filter -A MIAPLUS  -m mac --mac-source $macaddr -j DROP
   done
+  
   for i in $(seq 0 100)
   do
     local enable=$(uci_get_by_type $1 enable '' $i)
@@ -88,6 +175,7 @@ add_rule(){
     local z5=$(uci_get_by_type $1 z5 '' $i)
     local z6=$(uci_get_by_type $1 z6 '' $i)
     local z7=$(uci_get_by_type $1 z7 '' $i)
+    
     [ "$z1" == "1" ] && Z1="Mon,"
     [ "$z2" == "1" ] && Z2="Tue,"
     [ "$z3" == "1" ] && Z3="Wed,"
@@ -99,6 +187,7 @@ add_rule(){
     if [ -z $enable ] || [ -z $timeoff ] || [ -z $timeon ]; then
       break
     fi
+    
     if [ "$enable" == "1" ]; then
       for macaddr in $macaddrs
       do
@@ -106,6 +195,7 @@ add_rule(){
         [ $ipv6enable -eq 1 ] && ip6tables -t filter -I MIAPLUS  -m mac --mac-source $macaddr -m time --kerneltz --timestart $timeon --timestop $timeoff --weekdays $Z1$Z2$Z3$Z4$Z5$Z6$Z7 -j ACCEPT
       done
     fi
+    
     for n in $(seq 1 7)
     do
       unset "Z$n"
@@ -113,30 +203,45 @@ add_rule(){
   done
 }
 
-del_rule(){
-	type=$1
-	blackMacAdd=$(iptables -t nat -L $type | grep -w RETURN | grep -w "MAC" | awk '{print $7}')
-	[ -n "$blackMacAdd" ] && {
-		for macaddrb in $blackMacAdd
-		do
-			iptables -t nat -D $type -m mac --mac-source $macaddrb -j RETURN
-		done
-	}
+setup_cron() {
+	local interval=$(uci get miaplus.@basic[0].dynamic_update_interval 2>/dev/null)
+	[ -z "$interval" ] && interval=5
+	
+	# 移除旧的cron任务
+	crontab -l 2>/dev/null | grep -v "update_dynamic_mac.sh" | crontab -
+	
+	# 添加新的cron任务
+	(crontab -l 2>/dev/null; echo "*/$interval * * * * /usr/bin/update_dynamic_mac.sh >/dev/null 2>&1") | crontab -
+}
+
+remove_cron() {
+	crontab -l 2>/dev/null | grep -v "update_dynamic_mac.sh" | crontab -
 }
 
 start(){
   stop
-	enable=$(uci get miaplus.@basic[0].enable)
-	[ $enable -eq 0 ] && exit 0
-  iptables -t filter -N MIAPLUS
+  enable=$(uci get miaplus.@basic[0].enable 2>/dev/null)
+  [ -z "$enable" ] && enable=0
+  [ $enable -eq 0 ] && exit 0
+  
+  # 更新动态MAC缓存
+  update_dynamic_mac_cache
+  
+  # 设置cron任务
+  setup_cron
+  
+  iptables -t filter -N MIAPLUS 2>/dev/null || iptables -t filter -F MIAPLUS
   iptables -I INPUT -p udp --dport 53 -m comment --comment "Rule For Control" -j MIAPLUS
   iptables -I INPUT -p tcp --dport 53 -m comment --comment "Rule For Control" -j MIAPLUS
   iptables -t nat -A PREROUTING -p udp --dport 53 -j REDIRECT --to-ports 53 -m comment --comment "Rule For Control"
   iptables -t nat -A PREROUTING -p tcp --dport 53 -j REDIRECT --to-ports 53 -m comment --comment "Rule For Control"
-  strict=$(uci get miaplus.@basic[0].strict)
+  
+  strict=$(uci get miaplus.@basic[0].strict 2>/dev/null)
+  [ -z "$strict" ] && strict=0
   [ $strict -eq 1 ] && iptables -t filter -I FORWARD -m comment --comment "Rule For Control" -j MIAPLUS
 
-  ipv6enable=$(uci get miaplus.@basic[0].ipv6enable)
+  ipv6enable=$(uci get miaplus.@basic[0].ipv6enable 2>/dev/null)
+  [ -z "$ipv6enable" ] && ipv6enable=0
   if [ "$ipv6enable" -eq 1 ]; then
     ip6tables -t filter -N MIAPLUS
     ip6tables -I INPUT -p udp --dport 53 -m comment --comment "Rule For Control" -j MIAPLUS
@@ -145,9 +250,15 @@ start(){
     ip6tables -t nat -A PREROUTING -p tcp --dport 53 -j REDIRECT --to-ports 53 -m comment --comment "Rule For Control"
     [ $strict -eq 1 ] && ip6tables -t filter -I FORWARD -m comment --comment "Rule For Control" -j MIAPLUS
   fi
+  
   add_rules
 }
+
 stop(){
+  # 移除cron任务
+  remove_cron
+  
+  # 清理iptables规则
   iptables -t filter -D FORWARD -m comment --comment "Rule For Control" -j MIAPLUS 2>/dev/null
   iptables -D INPUT -p udp --dport 53 -m comment --comment "Rule For Control" -j MIAPLUS 2>/dev/null
   iptables -D INPUT -p tcp --dport 53 -m comment --comment "Rule For Control" -j MIAPLUS 2>/dev/null
@@ -156,7 +267,7 @@ stop(){
   iptables -t filter -F MIAPLUS 2>/dev/null
   iptables -t filter -X MIAPLUS 2>/dev/null
 
-  notfound=$(type ip6tables | grep not)
+  notfound=$(type ip6tables 2>&1 | grep not)
   if [ -z "$notfound" ]; then
     ip6tables -t filter -D FORWARD -m comment --comment "Rule For Control" -j MIAPLUS 2>/dev/null
     ip6tables -D INPUT -p udp --dport 53 -m comment --comment "Rule For Control" -j MIAPLUS 2>/dev/null
@@ -166,4 +277,25 @@ stop(){
     ip6tables -t filter -F MIAPLUS 2>/dev/null
     ip6tables -t filter -X MIAPLUS 2>/dev/null
   fi
+  
+  # 清理缓存文件
+  rm -f "$DYNAMIC_MAC_CACHE" "$DYNAMIC_MAC_CACHE.tmp"
+}
+
+reload() {
+  # 仅更新动态MAC并重新应用规则，不重启整个服务
+  enable=$(uci get miaplus.@basic[0].enable 2>/dev/null)
+  [ -z "$enable" ] && enable=0
+  [ $enable -eq 0 ] && return 0
+  
+  update_dynamic_mac_cache
+  setup_cron
+  
+  # 清理并重新添加规则
+  iptables -t filter -F MIAPLUS 2>/dev/null
+  ipv6enable=$(uci get miaplus.@basic[0].ipv6enable 2>/dev/null)
+  [ -z "$ipv6enable" ] && ipv6enable=0
+  [ $ipv6enable -eq 1 ] && ip6tables -t filter -F MIAPLUS 2>/dev/null
+  
+  add_rules
 }

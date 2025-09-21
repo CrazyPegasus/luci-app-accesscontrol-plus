@@ -2,6 +2,8 @@
 config basic
 	option enable '0'
 	option strict '0'
+	option ipv6enable '0'
+	option dynamic_update_interval '15'
 
 config templates
     option enable '0'

@@ -1,9 +1,10 @@
 #!/bin/sh
-
-uci -q batch <<-EOF >/dev/null
+uci -q batch <<-UCIBATCH >/dev/null
 	delete ucitrack.@miaplus[-1]
 	add ucitrack miaplus
 	set ucitrack.@miaplus[-1].init=miaplus
+	set ucitrack.@miaplus[-1].exec='/etc/init.d/miaplus reload'
+	set ucitrack.@miaplus[-1].exec='/etc/init.d/miaplus restart'
 	commit ucitrack
 	delete firewall.miaplus
 	set firewall.miaplus=include
@@ -11,7 +12,6 @@ uci -q batch <<-EOF >/dev/null
 	set firewall.miaplus.path=/etc/miaplus.include
 	set firewall.miaplus.reload=1
 	commit firewall
-EOF
-
+UCIBATCH
 rm -f /tmp/luci-indexcache
 exit 0

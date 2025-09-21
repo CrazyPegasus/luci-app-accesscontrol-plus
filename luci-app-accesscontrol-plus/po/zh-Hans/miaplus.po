@@ -4,12 +4,6 @@ msgstr "上网时间控制Plus"
 msgid "Access Schedule Control Description"
 msgstr "设置客户端访问互联网的时间"
 
-msgid "Base Setting"
-msgstr "基本设置"
-
-msgid "Advance Setting"
-msgstr "高级设置"
-
 msgid "General switch"
 msgstr "开启/关闭"
 
@@ -27,6 +21,36 @@ msgstr "描述"
 
 msgid "MAC address (Computer Name)"
 msgstr "MAC 地址 (主机名)"
+
+msgid "MAC Type"
+msgstr "MAC类型"
+
+msgid "Static MAC"
+msgstr "静态MAC"
+
+msgid "Dynamic MAC (by hostname)"
+msgstr "动态MAC (通过主机名)"
+
+msgid "Hostname"
+msgstr "主机名"
+
+msgid "Device hostname for dynamic MAC identification"
+msgstr "用于动态MAC识别的设备主机名"
+
+msgid "Dynamic MAC Update Interval (minutes)"
+msgstr "动态MAC更新间隔（分钟）"
+
+msgid "Update interval for dynamic MAC addresses (1-60 minutes)"
+msgstr "动态MAC地址的更新间隔（1-60分钟）"
+
+msgid "Invalid interval, must be between 1 and 60 minutes"
+msgstr "无效间隔，必须在1到60分钟之间"
+
+msgid "Update Dynamic MAC"
+msgstr "更新动态MAC"
+
+msgid "Dynamic MAC update completed"
+msgstr "动态MAC更新完成"
 
 msgid "Start time"
 msgstr "开始时间"
@@ -57,4 +81,28 @@ msgstr "日"
 
 msgid "Template"
 msgstr "模板"
+
+msgid "RUNNING"
+msgstr "运行中"
+
+msgid "NOT RUNNING"
+msgstr "未运行"
+
+msgid "Collecting data..."
+msgstr "正在收集数据..."
+
+msgid "IPV6 Enabled"
+msgstr "启用IPV6"
+
+msgid "Base Setting"
+msgstr "基本设置"
+
+msgid "Advance Setting"
+msgstr "高级设置"
+
+msgid "Rules"
+msgstr "规则"
+
+msgid "Enabled"
+msgstr "启用"
 

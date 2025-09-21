@@ -11,11 +11,20 @@ function index()
 	entry({"admin", "services", "miaplus", "base"}, cbi("base"), _("Base Setting"), 40).leaf = true
 	entry({"admin", "services", "miaplus", "advanced"}, cbi("advanced"), _("Advance Setting"), 50).leaf = true
 	entry({"admin", "services", "miaplus", "template"}, cbi("template"), nil).leaf = true
+	entry({"admin", "services", "miaplus", "update_dynamic_mac"}, call("act_update_dynamic_mac")).leaf = true
 end
 
 function act_status()
 	local e = {}
 	e.running = luci.sys.call("iptables -L INPUT |grep MIAPLUS >/dev/null") == 0
+	luci.http.prepare_content("application/json")
+	luci.http.write_json(e)
+end
+
+function act_update_dynamic_mac()
+	local result = luci.sys.exec("/usr/bin/update_dynamic_mac.sh")
+	local e = {}
+	e.result = result
 	luci.http.prepare_content("application/json")
 	luci.http.write_json(e)
 end

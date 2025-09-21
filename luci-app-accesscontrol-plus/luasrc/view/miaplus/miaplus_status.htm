@@ -12,6 +12,16 @@ XHR.poll(3, '<%=url([[admin]], [[services]], [[miaplus]], [[status]])%>', null,
 		}
 	}
 );
+
+function updateDynamicMAC() {
+	XHR.get('<%=url([[admin]], [[services]], [[miaplus]], [[update_dynamic_mac]])%>', null,
+		function(x, data) {
+			if (data && data.result) {
+				alert('<%:Dynamic MAC update completed%>: ' + data.result);
+			}
+		}
+	);
+}
 //]]>
 </script>
 <style>.mar-10 {margin-left: 50px; margin-right: 10px;}</style>
@@ -19,4 +29,7 @@ XHR.poll(3, '<%=url([[admin]], [[services]], [[miaplus]], [[status]])%>', null,
 	<p id="miaplus_status">
 		<em><%:Collecting data...%></em>
 	</p>
+	<div style="margin-top: 10px;">
+		<input type="button" value="<%:Update Dynamic MAC%>" onclick="updateDynamicMAC()" class="btn cbi-button" />
+	</div>
 </fieldset>
